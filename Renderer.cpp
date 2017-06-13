@@ -93,7 +93,12 @@ void Renderer::run()
 {
    // Render all pages
    unsigned char* writer=cacheStart;
-   for (unsigned index=0;(index<images.size())&&(!mustStop);index++) {
+#pragma omp parallel for schedule(dynamic)
+   for (unsigned index=0;index<images.size();index++) {
+      if (mustStop) { // break
+         index=images.size();
+         continue;
+      }
       delete images[index]; images[index]=0;
       delete thumbnails[index]; thumbnails[index]=0;
       delete darkThumbnails[index]; darkThumbnails[index]=0;
@@ -114,35 +119,55 @@ void Renderer::run()
 
       // Store in cache file
       unsigned len=img.byteCount();
-      if (writer+len>cacheEnd) {
-         cerr << "out of cache space, stopping rendering!" << endl;
-         break;
+      unsigned char* imgWriter;
+#pragma omp critical(writer)
+      {
+         if (writer+len>cacheEnd) {
+           cerr << "out of cache space, stopping rendering!" << endl;
+           throw;
+         }
+         imgWriter=writer;
+         writer+=len;
       }
-      memcpy(writer,img.bits(),len);
-      images[index]=new QImage(writer,img.width(),img.height(),img.bytesPerLine(),img.format());
-      writer+=len;
+
+      memcpy(imgWriter,img.bits(),len);
+      images[index]=new QImage(imgWriter,img.width(),img.height(),img.bytesPerLine(),img.format());
 
       // Create a thumbnail
       QImage thumb=img.scaled(thumbSize,Qt::KeepAspectRatio,Qt::SmoothTransformation);
       len=thumb.byteCount();
-      if (writer+len>cacheEnd) {
-         cerr << "out of cache space, stopping rendering!" << endl;
-         break;
-      }
-      memcpy(writer,thumb.bits(),len);
-      thumbnails[index]=new QImage(writer,thumb.width(),thumb.height(),thumb.bytesPerLine(),thumb.format());
-      writer+=len;
 
-      // Create a grayed thumnail
-      if (writer+len>cacheEnd) {
-         cerr << "out of cache space, stopping rendering!" << endl;
-         break;
+      unsigned char* thumbWriter;
+#pragma omp critical(writer)
+      {
+         if (writer+len>cacheEnd) {
+            cerr << "out of cache space, stopping rendering!" << endl;
+            throw;
+         }
+         thumbWriter=writer;
+         writer+=len;
       }
+
+      memcpy(thumbWriter,thumb.bits(),len);
+      thumbnails[index]=new QImage(thumbWriter,thumb.width(),thumb.height(),thumb.bytesPerLine(),thumb.format());
+      thumbWriter+=len;
+
+      unsigned char* darkThumbWriter;
+#pragma omp critical(writer)
+      {
+         if (writer+len>cacheEnd) {
+            cerr << "out of cache space, stopping rendering!" << endl;
+            throw;
+         }
+         darkThumbWriter=writer;
+         writer+=len;
+      }
+      // Create a grayed thumnail
       unsigned char* reader=thumb.bits();
       for (unsigned index2=0;index2<len;index2++)
-         writer[index2]=reader[index2]/2;
-      darkThumbnails[index]=new QImage(writer,thumb.width(),thumb.height(),thumb.bytesPerLine(),thumb.format());
-      writer+=len;
+         darkThumbWriter[index2]=reader[index2]/2;
+      darkThumbnails[index]=new QImage(darkThumbWriter,thumb.width(),thumb.height(),thumb.bytesPerLine(),thumb.format());
+      darkThumbWriter+=len;
 
       /// Notify
       QMetaObject::invokeMethod(this,"pageRendered",Qt::QueuedConnection,Q_ARG(unsigned,index));
@@ -160,3 +185,5 @@ void Renderer::stop()
    }
 }
 //----------------------------------------------------------------------------
+
+

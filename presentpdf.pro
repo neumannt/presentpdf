@@ -2,8 +2,9 @@ TEMPLATE = app
 TARGET = presentpdf
 DEPENDPATH += .
 INCLUDEPATH += .
-LIBS+= 
+LIBS+= -fopenmp
 QMAKE_CXXFLAGS += -std=c++14
+QMAKE_CXXFLAGS += -fopenmp
 QT += widgets
 
 # Input
